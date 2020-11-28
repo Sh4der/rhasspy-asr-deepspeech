@@ -21,8 +21,7 @@ class DeepSpeechTranscriber(Transcriber):
     def __init__(
         self,
         model_path: typing.Optional[Path] = None,
-        language_model_path: typing.Optional[Path] = None,
-        trie_path: typing.Optional[Path] = None,
+        scorer_path: typing.Optional[Path] = None,
         model: typing.Optional[deepspeech.Model] = None,
         beam_width: int = 500,
         lm_alpha: float = 0.75,
@@ -30,8 +29,7 @@ class DeepSpeechTranscriber(Transcriber):
     ):
         self.model = model
         self.model_path = model_path
-        self.language_model_path = language_model_path
-        self.trie_path = trie_path
+        self.scorer_path = scorer_path
 
         self.beam_width = beam_width
         self.lm_alpha = lm_alpha
@@ -50,7 +48,7 @@ class DeepSpeechTranscriber(Transcriber):
                 audio_bytes = wav_file.readframes(wav_file.getnframes())
                 audio_buffer = np.frombuffer(audio_bytes, np.int16)
 
-        metadata = self.model.sttWithMetadata(audio_buffer)
+        metadata = self.model.sttWithMetadata(audio_buffer).transcripts[0]
         end_time = time.perf_counter()
 
         if metadata:
@@ -61,14 +59,14 @@ class DeepSpeechTranscriber(Transcriber):
             tokens: typing.List[TranscriptionToken] = []
             word = ""
             word_start_time = 0
-            for index, item in enumerate(metadata.items):
-                text += item.character
+            for index, item in enumerate(metadata.tokens):
+                text += item.text
 
-                if item.character != " ":
+                if item.text != " ":
                     # Add to current word
-                    word += item.character
+                    word += item.text
 
-                if item.character == " " or (index == (len(metadata.items) - 1)):
+                if item.text == " " or (index == (len(metadata.tokens) - 1)):
                     # Combine into single tokens
                     tokens.append(
                         TranscriptionToken(
@@ -136,29 +134,27 @@ class DeepSpeechTranscriber(Transcriber):
         _LOGGER.debug(
             "Loading model from %s (beam width=%s)", self.model_path, self.beam_width
         )
-        self.model = deepspeech.Model(str(self.model_path), self.beam_width)
+        self.model = deepspeech.Model(str(self.model_path))
+        self.model.setBeamWidth(self.beam_width)
 
         if (
-            self.language_model_path
-            and self.language_model_path.is_file()
-            and self.trie_path
-            and self.trie_path.is_file()
+            self.scorer_path
+            and self.scorer_path.is_file()
         ):
             _LOGGER.debug(
-                "Enabling language model (lm=%s, trie=%s, lm_alpha=%s, lm_beta=%s)",
-                self.language_model_path,
-                self.trie_path,
+                "Enabling language model (scorer=%s, lm_alpha=%s, lm_beta=%s)",
+                self.scorer_path,
                 self.lm_alpha,
                 self.lm_beta,
             )
-
-            self.model.enableDecoderWithLM(
-                str(self.language_model_path),
-                str(self.trie_path),
+            self.model.setScorerAlphaBeta(
                 self.lm_alpha,
-                self.lm_beta,
+                self.lm_beta
             )
-
+            self.model.enableExternalScorer(
+                str(self.scorer_path)
+            )
+            
 
 # -----------------------------------------------------------------------------
 
